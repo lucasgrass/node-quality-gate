@@ -1,0 +1,25 @@
+{
+  "coverage": { "lcov": "coverage/lcov.info", "tolerance": 0.1 },
+  "patchCoverage": {
+    "enabled": true,
+    "mode": "warn",
+    "threshold": 80,
+    "minLines": 20,
+    "baseRef": "origin/main"
+  },
+  "eslint": {
+    "command": "npx eslint",
+    "args": ["."],
+    "qualityRules": {
+      "complexity": 20,
+      "max-depth": 4,
+      "max-lines": 300,
+      "max-lines-per-function": 50,
+      "max-params": 3,
+      "max-nested-callbacks": 10
+    }
+  },
+  "size": { "maxLines": 400, "maxBytes": 40000 },
+  "duplication": { "minLines": 10, "minTokens": 100, "tolerance": 0.1 },
+  "exclude": ["**/*.test.*", "**/*.spec.*", "**/*.d.ts", "**/__snapshots__/**"]
+}
