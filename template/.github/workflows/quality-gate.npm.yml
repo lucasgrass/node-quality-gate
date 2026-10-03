@@ -1,0 +1,111 @@
+# node-quality-gate v0.1.0 — https://github.com/lucasgrass/node-quality-gate
+# Quality gate for projects using npm. Copy to .github/workflows/quality-gate.yml.
+#
+# Expects in your project:
+#   - a "lint" script and a "test:coverage" script that writes coverage/lcov.info
+#   - scripts/quality-gate/ and quality-gate.config.json from the template
+#   - a committed quality-gate.baseline.json (run "node scripts/quality-gate/cli.mts baseline" once)
+name: Quality gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # patch coverage diffs the pull request against its base branch
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24 # or node-version-file: .nvmrc
+          cache: npm
+
+      # 1. Deterministic install from package-lock.json
+      - name: Install
+        run: npm ci
+
+      # 2. Critical vulnerabilities block the pipeline
+      - name: Audit (critical)
+        run: npm audit --audit-level=critical
+
+      # 3. High vulnerabilities only warn
+      - name: Audit (high)
+        run: npm audit --audit-level=high || echo "::warning title=Audit::High severity vulnerabilities found; see this step's log."
+
+      # Optional: verify registry signatures and provenance attestations of installed packages
+      # - run: npm audit signatures
+
+      # 4. The project's own lint; errors fail here
+      - name: Lint
+        run: npm run lint
+
+      # 5. Tests with coverage; must write coverage/lcov.info
+      - name: Tests with coverage
+        run: npm run test:coverage
+
+      # 6. The ratchet: compares with quality-gate.baseline.json and fails on regressions
+      - name: Quality gate
+        run: node scripts/quality-gate/cli.mts check
+
+
+      # 7. Sticky comment on the pull request (the job summary is written by the script).
+      #    Skipped on pull requests from forks, where GITHUB_TOKEN is read-only.
+      - name: Comment on the pull request
+        if: always() && github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork
+        continue-on-error: true
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const marker = '<!-- node-quality-gate -->';
+            const path = 'reports/quality-gate.md';
+            if (!fs.existsSync(path)) {
+              core.info('No quality gate report to post (an earlier step failed).');
+              return;
+            }
+            let body = fs.readFileSync(path, 'utf8');
+            const limit = 65000; // GitHub rejects comment bodies over 65536 characters
+            if (body.length > limit) {
+              body = `${body.slice(0, limit)}\n\n_Report truncated; see the quality-gate artifact._\n${marker}`;
+            }
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const previous = comments.find((c) => c.user?.type === 'Bot' && c.body?.includes(marker));
+            if (previous) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: previous.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+
+      # 8. Coverage and reports as artifacts
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-gate
+          path: |
+            coverage/
+            reports/
+          if-no-files-found: ignore

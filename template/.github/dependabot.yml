@@ -1,0 +1,7 @@
+# Keeps the SHA-pinned actions in the quality gate workflow current.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
