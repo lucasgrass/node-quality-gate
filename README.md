@@ -146,7 +146,7 @@ test/                     unit tests (node:test) and the end-to-end run
 
 The pipeline shape (install → audit → lint → coverage → ratchet → sticky
 comment → artifacts) comes from Lucas Montano's video
-"Por que NÃO faço mais Review de AI" <!-- TODO: add the video URL -->.
+["Por que NÃO faço mais Review de AI"](https://www.youtube.com/watch?v=qToBgU8K4Ms).
 This project is an independent, from-scratch implementation.
 
 ## Contributing
