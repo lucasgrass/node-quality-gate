@@ -1,0 +1,15 @@
+node_modules/
+coverage/
+reports/
+*.tgz
+.DS_Store
+
+# e2e scratch output
+example/coverage/
+example/reports/
+example/node_modules/
+
+# copies made by the e2e test, never committed here
+example/scripts/
+example/quality-gate.config.json
+example/quality-gate.baseline.json
