@@ -98,11 +98,11 @@ function ratio(hit: number, found: number): number {
   return found === 0 ? 100 : round2((hit / found) * 100);
 }
 
-/** Unified diff (`-U0`) of the working tree against the merge base with `baseRef`, or null when the ref is unknown. */
+/** Unified diff (`-U0`, paths relative to `cwd`) of the working tree against the merge base with `baseRef`, or null when the ref is unknown. */
 export function diffSinceBase(baseRef: string, cwd: string): string | null {
   const mergeBase = git(['merge-base', baseRef, 'HEAD'], cwd)?.trim();
   if (!mergeBase) return null;
-  return git(['diff', '-U0', '--no-color', '--no-ext-diff', '--diff-filter=AMR', mergeBase], cwd);
+  return git(['diff', '-U0', '--no-color', '--no-ext-diff', '--relative', '--diff-filter=AMR', mergeBase], cwd);
 }
 
 /** Added line numbers per file, read from the hunk headers of a `-U0` unified diff. */
@@ -142,6 +142,32 @@ export function addUntracked(
     if (hits && !added.has(file)) added.set(file, [...hits.keys()]);
   }
   return added;
+}
+
+/**
+ * Changed source files the coverage report does not mention although it covers a file in the
+ * same directory tree. Most runners only report the files the tests loaded, so a new module
+ * without tests would otherwise be invisible to both the totals and patch coverage.
+ */
+export function unmeasuredFiles(
+  changed: Iterable<string>,
+  coverage: ReadonlyMap<string, FileCoverage>,
+  sources: ReadonlySet<string>,
+): string[] {
+  const coveredDirectories = new Set<string>();
+  for (const file of coverage.keys()) for (const directory of ancestors(file)) coveredDirectories.add(directory);
+  const missing = new Set<string>();
+  for (const file of changed) {
+    if (coverage.has(file) || !sources.has(file)) continue;
+    if (ancestors(file).some((directory) => coveredDirectories.has(directory))) missing.add(file);
+  }
+  return [...missing].sort();
+}
+
+/** `src/a/b.ts` -> `src/a`, `src`. Files at the root have none. */
+function ancestors(file: string): string[] {
+  const parts = file.split('/').slice(0, -1);
+  return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
 }
 
 /** Coverage of the added lines that the coverage report knows about (Sonar skips small changes). */

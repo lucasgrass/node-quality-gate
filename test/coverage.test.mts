@@ -6,6 +6,7 @@ import {
   measurePatchCoverage,
   parseAddedLines,
   parseLcov,
+  unmeasuredFiles,
 } from '../template/scripts/quality-gate/coverage.mts';
 
 const CWD = '/repo';
@@ -94,6 +95,14 @@ test('measurePatchCoverage counts only instrumented added lines and skips small 
   const skipped = measurePatchCoverage(added, coverage, 20);
   assert.equal(skipped.status, 'skipped');
   assert.match(skipped.status === 'skipped' ? skipped.reason : '', /only 5 changed lines/);
+});
+
+test('unmeasuredFiles lists changed sources the report skips, next to files it covers', () => {
+  const coverage = parseLcov(LCOV, CWD);
+  const sources = new Set(['src/a.ts', 'src/new.ts', 'src/deep/er.ts', 'tools/build.ts', 'eslint.config.js']);
+  const changed = ['src/a.ts', 'src/new.ts', 'src/deep/er.ts', 'src/new.ts', 'tools/build.ts', 'eslint.config.js', 'src/notes.md'];
+  assert.deepEqual(unmeasuredFiles(changed, coverage, sources), ['src/deep/er.ts', 'src/new.ts']);
+  assert.deepEqual(unmeasuredFiles(changed, new Map(), sources), [], 'an empty report gives no neighbours to compare with');
 });
 
 test('addUntracked counts every instrumented line of an untracked file as added', () => {

@@ -26,12 +26,13 @@ import {
   measurePatchCoverage,
   parseAddedLines,
   parseLcov,
+  unmeasuredFiles,
   untrackedFiles,
   type FileCoverage,
 } from './coverage.mts';
 import { detectDuplication } from './duplication.mts';
 import { countViolations, excluder, oversizedFiles, readSources, runEslint } from './lint.mts';
-import { compare, parseBaseline, toBaseline } from './ratchet.mts';
+import { compare, holdTolerated, judge, parseBaseline, toBaseline } from './ratchet.mts';
 import { annotations, renderMarkdown, truncate } from './report.mts';
 import type { Baseline, DuplicatedBlock, Metrics, PatchCoverage, Report } from './types.mts';
 import { git, toRepoPath } from './util.mts';
@@ -52,14 +53,16 @@ Commands
 
 Options
   --config <path>      Config file (default ${CONFIG_PATH}; defaults apply when it is missing)
-  --base <ref>         Git ref for patch coverage (default: GITHUB_BASE_REF or patchCoverage.baseRef)
+  --base <ref>         Base branch, for patch coverage and the baseline comparison
+                       (default: GITHUB_BASE_REF or patchCoverage.baseRef)
   --allow-regression   Let "baseline" record values worse than the current baseline
   --version, --help
 
 Exit codes: 0 ok, 1 regressions, 2 usage or environment error`;
 
 type Flags = { config: string; base: string | undefined; allowRegression: boolean };
-type Measurement = { metrics: Metrics; patch: PatchCoverage; blocks: DuplicatedBlock[] };
+type Changes = { patch: PatchCoverage; unmeasured: string[] };
+type Measurement = Changes & { metrics: Metrics; blocks: DuplicatedBlock[] };
 
 export function main(argv: string[], cwd: string): number {
   const { positionals, values } = parseArgs({
@@ -92,18 +95,21 @@ function print(text: string, code = 0): number {
 
 function check(flags: Flags, cwd: string): number {
   const config = loadConfig(flags.config, cwd);
-  const { metrics, patch, blocks } = measure(config, flags.base, cwd);
-  const { baseline: previous, source } = readBaseline(cwd);
-  const verdict = compare(previous, metrics, patch, config);
+  const { metrics, patch, unmeasured, blocks } = measure(config, flags.base, cwd);
+  const committed = readBaseline(cwd);
+  const base = readBaseBaseline(flags.base ?? baseRef(config), cwd);
+  const previous = committed ?? base;
+  const verdict = judge({ committed, base, current: metrics, patch, unmeasured }, config);
   const report: Report = {
     ...verdict,
     tool: TOOL,
     status: verdict.regressions.length === 0 ? 'pass' : 'fail',
     generatedAt: new Date().toISOString(),
-    baselineSource: source,
+    baselineSource: baselineSource(committed, base, cwd),
     baseline: previous,
     current: metrics,
     patchCoverage: patch,
+    unmeasuredFiles: unmeasured,
     duplicatedBlocks: blocks,
   };
   const markdown = renderMarkdown(report, config);
@@ -119,7 +125,7 @@ function check(flags: Flags, cwd: string): number {
 function baseline(flags: Flags, cwd: string): number {
   const config = loadConfig(flags.config, cwd);
   const { metrics } = measure(config, flags.base, cwd);
-  const { baseline: previous } = readBaseline(cwd);
+  const previous = readBaseline(cwd);
   if (previous) {
     const verdict = compare(previous, metrics, { status: 'skipped', reason: 'baseline' }, config);
     if (verdict.regressions.length > 0 && !flags.allowRegression) {
@@ -129,10 +135,10 @@ function baseline(flags: Flags, cwd: string): number {
     }
     for (const item of verdict.improvements) console.log(`  + ${item}`);
   }
-  const commit = git(['rev-parse', '--short', 'HEAD'], cwd)?.trim() ?? 'unknown';
-  const next = toBaseline(metrics, commit, TOOL, new Date());
-  writeFileSync(resolve(cwd, BASELINE_PATH), `${JSON.stringify(next, null, 2)}\n`);
-  console.log(`Baseline written to ${BASELINE_PATH} (commit ${commit}). Commit it with your change.`);
+  // Without --allow-regression anything still worse is inside the tolerance: keep the old value.
+  const held = previous && !flags.allowRegression ? holdTolerated(previous, metrics) : metrics;
+  writeFileSync(resolve(cwd, BASELINE_PATH), `${JSON.stringify(toBaseline(held, TOOL), null, 2)}\n`);
+  console.log(`Baseline written to ${BASELINE_PATH}. Commit it with your change.`);
   return 0;
 }
 
@@ -157,8 +163,8 @@ function doctor(flags: Flags, cwd: string): number {
     checks.push(['Git base ref', !config.patchCoverage.enabled || mergeBase !== null, mergeBase ? `${base} (patch coverage)` : `${base} not found; fetch it or set patchCoverage.baseRef`]);
   }
   try {
-    const { baseline: previous } = readBaseline(cwd);
-    checks.push(['Baseline', true, previous ? `${BASELINE_PATH} from commit ${previous.commit}` : `none yet (run "baseline")`]);
+    const previous = readBaseline(cwd);
+    checks.push(['Baseline', true, previous ? `${BASELINE_PATH} (${previous.tool})` : `none yet (run "baseline")`]);
   } catch (error) {
     checks.push(['Baseline', false, (error as Error).message]);
   }
@@ -184,6 +190,7 @@ function measure(config: Config, baseOverride: string | undefined, cwd: string):
   const lint = runEslint(config.eslint, resolve(cwd, REPORT_DIR, 'eslint.json'), cwd);
   const excluded = excluder([...config.exclude, `${toRepoPath(dirname(fileURLToPath(import.meta.url)), cwd)}/**`]);
   const sources = readSources(lint.files.filter((file) => !excluded(file)), cwd);
+  const changes = measureChanges(config, baseOverride, coverage, new Set(sources.keys()), cwd);
   const violations = countViolations(lint.messages, Object.keys(config.eslint.qualityRules), excluded);
   const oversized = oversizedFiles(sources, config.size);
   const duplication = detectDuplication(sources, config.duplication);
@@ -194,16 +201,29 @@ function measure(config: Config, baseOverride: string | undefined, cwd: string):
     oversized,
     ruleViolations: violations.perFile,
   };
-  return { metrics, patch: patchCoverage(config, baseOverride, coverage, cwd), blocks: duplication.blocks };
+  return { metrics, ...changes, blocks: duplication.blocks };
 }
 
-function patchCoverage(config: Config, baseOverride: string | undefined, coverage: Map<string, FileCoverage>, cwd: string): PatchCoverage {
-  if (!config.patchCoverage.enabled) return { status: 'skipped', reason: 'disabled in the config' };
+/** Patch coverage, plus the changed source files the coverage report says nothing about. */
+function measureChanges(
+  config: Config,
+  baseOverride: string | undefined,
+  coverage: Map<string, FileCoverage>,
+  sources: ReadonlySet<string>,
+  cwd: string,
+): Changes {
+  const skipped = (reason: string): Changes => ({ patch: { status: 'skipped', reason }, unmeasured: [] });
+  if (!config.patchCoverage.enabled) return skipped('disabled in the config');
   const base = baseOverride ?? baseRef(config);
   const diff = diffSinceBase(base, cwd);
-  if (diff === null) return { status: 'skipped', reason: `base ref ${base} not found; fetch it or set patchCoverage.baseRef` };
-  const added = addUntracked(parseAddedLines(diff), untrackedFiles(cwd), coverage);
-  return measurePatchCoverage(added, coverage, config.patchCoverage.minLines);
+  if (diff === null) return skipped(`base ref ${base} not found; fetch it or set patchCoverage.baseRef`);
+  const added = parseAddedLines(diff);
+  const untracked = untrackedFiles(cwd);
+  const changed = [...added].filter(([, lines]) => lines.length > 0).map(([file]) => file);
+  return {
+    unmeasured: unmeasuredFiles([...changed, ...untracked], coverage, sources),
+    patch: measurePatchCoverage(addUntracked(added, untracked, coverage), coverage, config.patchCoverage.minLines),
+  };
 }
 
 function baseRef(config: Config): string {
@@ -211,12 +231,29 @@ function baseRef(config: Config): string {
   return pullRequestBase ? `origin/${pullRequestBase}` : config.patchCoverage.baseRef;
 }
 
-function readBaseline(cwd: string): { baseline: Baseline | null; source: string } {
+function readBaseline(cwd: string): Baseline | null {
   const file = resolve(cwd, BASELINE_PATH);
-  if (!existsSync(file)) return { baseline: null, source: 'none (first run)' };
-  const parsed = parseBaseline(JSON.parse(readFileSync(file, 'utf8')), BASELINE_PATH);
-  const date = parsed.generatedAt.slice(0, 10);
-  return { baseline: parsed, source: `${BASELINE_PATH} (commit ${parsed.commit}${date ? `, ${date}` : ''})` };
+  if (!existsSync(file)) return null;
+  return parseBaseline(JSON.parse(readFileSync(file, 'utf8')), BASELINE_PATH);
+}
+
+/** The baseline as committed at the merge base with `ref`; null when git cannot reach it or it is unreadable. */
+function readBaseBaseline(ref: string, cwd: string): Baseline | null {
+  const mergeBase = git(['merge-base', ref, 'HEAD'], cwd)?.trim();
+  const text = mergeBase ? git(['show', `${mergeBase}:./${BASELINE_PATH}`], cwd) : null;
+  if (!text) return null;
+  try {
+    return parseBaseline(JSON.parse(text), BASELINE_PATH);
+  } catch {
+    return null; // written by another version of the gate: nothing to compare with
+  }
+}
+
+/** Where the numbers in the "Baseline" column come from; the commit and date are git's, not the file's. */
+function baselineSource(committed: Baseline | null, base: Baseline | null, cwd: string): string {
+  if (!committed) return base ? `${BASELINE_PATH} from the base branch (removed in this change)` : 'none (first run)';
+  const change = git(['log', '-1', '--format=%h, %cs', '--', BASELINE_PATH], cwd)?.trim();
+  return change ? `${BASELINE_PATH} (last changed in ${change})` : BASELINE_PATH;
 }
 
 /** Job summary and annotations when running in GitHub Actions. */

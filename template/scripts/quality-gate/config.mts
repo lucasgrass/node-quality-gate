@@ -9,13 +9,13 @@ export const REPORT_DIR = 'reports';
 
 /** A rule option (`complexity: 20`) or `true` for rules without options. */
 export type QualityRuleOption = number | true;
-export type PatchCoverageMode = 'warn' | 'block';
+export type Mode = 'warn' | 'block';
 
 export type Config = {
   coverage: { lcov: string; tolerance: number };
   patchCoverage: {
     enabled: boolean;
-    mode: PatchCoverageMode;
+    mode: Mode;
     threshold: number;
     minLines: number;
     baseRef: string;
@@ -23,6 +23,7 @@ export type Config = {
   eslint: { command: string; args: string[]; qualityRules: Record<string, QualityRuleOption> };
   size: { maxLines: number; maxBytes: number };
   duplication: { minLines: number; minTokens: number; tolerance: number };
+  baseline: { loosening: Mode };
   exclude: string[];
 };
 
@@ -44,6 +45,7 @@ export const DEFAULT_CONFIG: Config = {
   },
   size: { maxLines: 400, maxBytes: 40_000 },
   duplication: { minLines: 10, minTokens: 100, tolerance: 0.1 },
+  baseline: { loosening: 'warn' },
   exclude: ['**/*.test.*', '**/*.spec.*', '**/*.d.ts', '**/__snapshots__/**'],
 };
 
@@ -80,11 +82,13 @@ export function resolveConfig(raw: unknown): Config {
       throw new ConfigError(`unknown key "${section}"`);
     }
   }
-  const { mode } = config.patchCoverage;
-  if (mode !== 'warn' && mode !== 'block') {
-    throw new ConfigError('"patchCoverage.mode" must be "warn" or "block"');
-  }
+  checkMode('patchCoverage.mode', config.patchCoverage.mode);
+  checkMode('baseline.loosening', config.baseline.loosening);
   return config;
+}
+
+function checkMode(path: string, mode: string): void {
+  if (mode !== 'warn' && mode !== 'block') throw new ConfigError(`"${path}" must be "warn" or "block"`);
 }
 
 type Section = Exclude<keyof Config, 'exclude'>;
