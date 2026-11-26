@@ -5,12 +5,13 @@ a gate anyone can read in one sitting, so simplicity wins over features.
 
 ## Ground rules
 
-- The script in `template/scripts/quality-gate.mts` must keep **zero runtime
+- The gate in `template/scripts/quality-gate/` must keep **zero runtime
   dependencies** and run on Node 22.18+ without a build step. That means
   erasable TypeScript only: no `enum`, no `namespace`, no parameter
   properties, `import type` for types.
 - Workflows in `template/.github/workflows/` pin every action to a full
-  commit SHA with a `# vX.Y.Z` comment. Dependabot keeps them current.
+  commit SHA with a `# vX.Y.Z` comment. Dependabot keeps them current
+  (`.github/dependabot.yml` also watches the template workflows).
 - Behaviour changes need a test in `test/` and a line in `CHANGELOG.md`.
 
 ## Setup
@@ -30,6 +31,6 @@ npm run test:e2e   # runs the template against example/ end to end
 
 ## Reporting problems
 
-Open an issue with the output of `node scripts/quality-gate.mts doctor`,
+Open an issue with the output of `node scripts/quality-gate/cli.mts doctor`,
 your `quality-gate.config.json` and, when relevant, the generated
 `reports/quality-gate.md`.

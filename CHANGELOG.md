@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the project uses [Semantic Versioning](https://semver.org/).
 
 Adopters copy files from `template/`; the version in the header of
-`scripts/quality-gate.mts` tells you which release your copy came from.
+`scripts/quality-gate/cli.mts` tells you which release your copy came from.
 
 ## [Unreleased]
 
