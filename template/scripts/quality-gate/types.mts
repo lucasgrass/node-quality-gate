@@ -19,10 +19,9 @@ export type Metrics = {
   ruleViolations: Record<string, RuleCounts>;
 };
 
+/** No timestamp or commit on purpose: the file only changes when a number does, so merges stay quiet. */
 export type Baseline = Metrics & {
   schemaVersion: 1;
-  generatedAt: string;
-  commit: string;
   tool: string;
 };
 
@@ -42,5 +41,7 @@ export type Report = Verdict & {
   baseline: Metrics | null;
   current: Metrics;
   patchCoverage: PatchCoverage;
+  /** Changed source files the coverage report does not mention. */
+  unmeasuredFiles: string[];
   duplicatedBlocks: DuplicatedBlock[];
 };

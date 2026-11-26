@@ -16,3 +16,16 @@ Adopters copy files from `template/`; the version in the header of
   against a committed baseline.
 - One ready-to-copy GitHub Actions workflow per package manager
   (npm, pnpm, Yarn, Bun).
+- `check` compares the baseline in the pull request with the one on the base
+  branch: loosened values are reported (`baseline.loosening`: `warn` or
+  `block`), and a deleted baseline no longer resets the gate.
+- A warning when a changed source file is missing from the coverage report.
+
+### Changed
+
+- The baseline file no longer has `generatedAt` and `commit`, so it only
+  changes when a metric does. Files that still have them are read fine.
+- `baseline` keeps the previous value of a number that got worse by less than
+  its tolerance.
+- Patch coverage uses paths relative to the folder where the gate runs, so it
+  works from a package inside a monorepo.

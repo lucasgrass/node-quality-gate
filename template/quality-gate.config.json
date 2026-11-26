@@ -21,5 +21,6 @@
   },
   "size": { "maxLines": 400, "maxBytes": 40000 },
   "duplication": { "minLines": 10, "minTokens": 100, "tolerance": 0.1 },
+  "baseline": { "loosening": "warn" },
   "exclude": ["**/*.test.*", "**/*.spec.*", "**/*.d.ts", "**/__snapshots__/**"]
 }

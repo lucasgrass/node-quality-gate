@@ -17,7 +17,7 @@ dependencies).
 
 > ## Quality gate ❌ 7 regressions
 >
-> Baseline: quality-gate.baseline.json (commit 8678bbd, 2026-10-03)
+> Baseline: quality-gate.baseline.json (last changed in 8678bbd, 2026-10-03)
 >
 > ### Coverage
 >
@@ -67,7 +67,9 @@ Fixed thresholds ("80% coverage or the build fails") cannot be adopted by a
 codebase that is at 7%, and once they are met nobody raises them. A ratchet
 starts from where you are and only moves in one direction. The baseline is a
 JSON file in your repository, so moving the bar, up or down, is a reviewable
-diff in a pull request.
+diff in a pull request. A pull request that lowers the bar is called out in
+its own report (or blocked, if you prefer), and deleting the file does not
+reset anything.
 
 ## Quick start
 

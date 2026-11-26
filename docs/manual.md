@@ -145,7 +145,7 @@ node scripts/quality-gate/cli.mts <command> [options]
 | Option | Meaning |
 |---|---|
 | `--config <path>` | Config file (default `quality-gate.config.json`; defaults apply when it is missing) |
-| `--base <ref>` | Git ref to diff against for patch coverage (default: `origin/<GITHUB_BASE_REF>` on pull requests, else `patchCoverage.baseRef`) |
+| `--base <ref>` | Git ref of the base branch, used for patch coverage and to read the base branch's baseline (default: `origin/<GITHUB_BASE_REF>` on pull requests, else `patchCoverage.baseRef`) |
 | `--allow-regression` | Let `baseline` record values worse than the current baseline, on purpose |
 | `--version`, `--help` | |
 
@@ -167,6 +167,9 @@ pnpm, Yarn and Bun workflows use it); `GITHUB_BASE_REF`, `GITHUB_ACTIONS` and
 | Quality rule violations (total) | current > baseline | `Quality rule violations increased from 483 to 484` |
 | Quality rule violations (per file and rule) | current > baseline, for files the baseline knows | `max-depth violations increased in src/api.ts (2 -> 9)` |
 | Oversized files (count) | current > baseline | `Oversized files increased from 19 to 20` |
+| Baseline loosened | the baseline in the pull request allows something the one on the base branch did not; warning in `warn` mode, regression in `block` mode | `Baseline loosened: Lines coverage dropped from 80% to 50%` |
+| Baseline removed | the base branch has a baseline and the pull request deletes it; the gate compares with the base branch's and fails | `The baseline file was removed in this change; compared with the one on the base branch` |
+| Unmeasured files (warning) | a changed source file is missing from the coverage report while files next to it are covered | `1 changed file is missing from the coverage report, so the new lines were not measured: src/new.ts. ...` |
 | New oversized file | file not in the baseline is over `size.maxLines` or `size.maxBytes` | `src/big.ts crossed the limit with 500 lines and 21000 bytes` |
 | Oversized file grew | lines or bytes above the baseline entry | `src/big.ts grew from 1008 to 1140 lines while already over the limit` |
 
@@ -194,6 +197,7 @@ typos cannot silently disable a check.
   },
   "size": { "maxLines": 400, "maxBytes": 40000 },
   "duplication": { "minLines": 10, "minTokens": 100, "tolerance": 0.1 },
+  "baseline": { "loosening": "warn" },
   "exclude": ["**/*.test.*", "**/*.spec.*", "**/*.d.ts", "**/__snapshots__/**"]
 }
 ```
@@ -206,7 +210,7 @@ typos cannot silently disable a check.
 | `patchCoverage.mode` | `"warn"` | `"warn"` lists it under Warnings; `"block"` makes it a regression |
 | `patchCoverage.threshold` | `80` | Minimum percentage of changed, instrumented lines that must be covered (SonarQube's default) |
 | `patchCoverage.minLines` | `20` | Skip the check when fewer changed lines are coverable (SonarQube's rule for small changes) |
-| `patchCoverage.baseRef` | `"origin/main"` | Ref to diff against outside pull requests |
+| `patchCoverage.baseRef` | `"origin/main"` | Base branch outside pull requests, for the diff and for the baseline comparison |
 | `eslint.command` | `"npx eslint"` | How to start ESLint; `pnpm exec eslint`, `yarn eslint`, `bunx eslint` |
 | `eslint.args` | `["."]` | What to lint; the gate appends `--format json --output-file reports/eslint.json` and the rules |
 | `eslint.qualityRules` | ESLint's defaults | Rules counted as quality violations, each with its option (`true` for rules without options). They run at warning level on top of your config |
@@ -214,6 +218,7 @@ typos cannot silently disable a check.
 | `duplication.minLines` | `10` | Window size in normalized code lines (SonarQube uses 10) |
 | `duplication.minTokens` | `100` | Minimum tokens in a window for it to count (SonarQube uses 100) |
 | `duplication.tolerance` | `0.1` | Percentage points the duplication may rise before it is a regression |
+| `baseline.loosening` | `"warn"` | What `check` does when the pull request's baseline is looser than the base branch's: `"warn"` lists each loosened value under Warnings, `"block"` makes them regressions |
 | `exclude` | tests, `.d.ts`, snapshots | Globs (`**`, `*`, `?`) of files ignored by the violation, size and duplication checks. Coverage is whatever your runner reports |
 
 ## The baseline file
@@ -223,8 +228,6 @@ typos cannot silently disable a check.
 ```json
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-03T21:40:12.511Z",
-  "commit": "8678bbd",
   "tool": "node-quality-gate 0.1.0",
   "coverage": { "lines": 9.09, "functions": 25, "branches": 0 },
   "duplication": { "percentage": 0, "fragments": 0 },
@@ -233,6 +236,10 @@ typos cannot silently disable a check.
   "ruleViolations": { "src/legacy.ts": { "max-depth": 2, "max-params": 1 } }
 }
 ```
+
+It holds numbers only, no timestamp and no commit, so running `baseline`
+twice on the same code writes the same bytes and the file changes only when a
+metric does. The report takes "last changed in" from `git log`.
 
 When to update it:
 
@@ -247,9 +254,33 @@ When to update it:
   was accepted. Prefer `exclude` for generated code.
 
 If a pull request does not update the baseline after improving things, nothing
-breaks; the next pull request simply has some slack. The gate compares against
-the baseline **committed in the branch**, so a reviewer should look at any
-baseline change the same way they look at code.
+breaks; the next pull request simply has some slack.
+
+**A pull request cannot quietly lower its own bar.** The gate compares the code
+against the baseline committed in the branch, and it also compares that
+baseline with the one on the base branch (read with `git show` at the merge
+base):
+
+- Every value the pull request loosened is listed as
+  `Baseline loosened: ...`, as a warning by default. Set
+  `"baseline": { "loosening": "block" }` to fail the gate instead; a
+  deliberate loosening then needs someone allowed to bypass the required
+  check.
+- Deleting the baseline does not start over: the gate uses the base branch's
+  baseline and fails.
+
+This matters most when the author is a coding agent: `--allow-regression` is
+one command away, and without this check the gate would turn green.
+
+**A drop inside the tolerance does not move the bar.** `baseline` keeps the
+previous value of a coverage or duplication number that got worse by less
+than its tolerance, so rewriting the file on every pull request cannot walk
+coverage down 0.1 point at a time. `--allow-regression` records the measured
+values as they are.
+
+**Merge conflicts.** Two pull requests that both change a number conflict in
+the baseline file. Merge the base branch, resolve by running `baseline` again
+and commit the result; the file is generated, never merge it by hand.
 
 ## The workflow, step by step
 
@@ -285,6 +316,19 @@ per file; the `DA:` records of the lcov report say which of those lines are
 instrumented and executed. Files git does not track yet (local runs before a
 commit) count as entirely new. Lines the coverage report does not know
 (comments, types, files outside the coverage `include`) are not counted.
+
+That last rule has a blind spot. Most runners report only the files the tests
+loaded, so a new module without any test is in neither the project totals nor
+the patch coverage. Two things close it:
+
+- Tell the runner which files exist: `coverage.include: ['src/**']` in Vitest,
+  `collectCoverageFrom: ['src/**/*.{ts,js}']` in Jest, `--all` in c8,
+  `--test-coverage-include='src/**'` in `node --test`. Untested files then
+  count as 0%.
+- The gate warns when a changed source file (one ESLint linted and `exclude`
+  does not match) is missing from the report while another file in the same
+  directory tree is covered. A file with types only triggers it too; that is
+  why it is a warning and never blocks.
 
 Following SonarQube, the check is skipped when fewer than `minLines` (20)
 changed lines are coverable, so a small fix is not failed over one line.

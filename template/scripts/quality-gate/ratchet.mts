@@ -19,6 +19,7 @@ import { COVERAGE_KEYS } from './types.mts';
 import { isRecord, pct, sortRecord } from './util.mts';
 
 export const SCHEMA_VERSION = 1;
+const UNMEASURED_SHOWN = 5;
 
 export function compare(baseline: Metrics | null, current: Metrics, patch: PatchCoverage, config: Config): Verdict {
   const verdict: Verdict = { regressions: [], warnings: [], improvements: [] };
@@ -31,6 +32,60 @@ export function compare(baseline: Metrics | null, current: Metrics, patch: Patch
   compareOversized(baseline.oversized, current.oversized, verdict);
   compareRules(baseline.ruleViolations, current.ruleViolations, verdict);
   return verdict;
+}
+
+export type Evidence = {
+  /** The baseline in the working tree, the one this change is held to. */
+  committed: Metrics | null;
+  /** The baseline on the base branch, when git can reach it. */
+  base: Metrics | null;
+  current: Metrics;
+  patch: PatchCoverage;
+  unmeasured: string[];
+};
+
+/** The full verdict of `check`: the ratchet itself plus what the change did to the baseline and to coverage reporting. */
+export function judge({ committed, base, current, patch, unmeasured }: Evidence, config: Config): Verdict {
+  const verdict = compare(committed ?? base, current, patch, config);
+  const warning = unmeasuredWarning(unmeasured);
+  if (warning) verdict.warnings.push(warning);
+  if (base && committed) {
+    const target = config.baseline.loosening === 'block' ? verdict.regressions : verdict.warnings;
+    target.push(...baselineLoosening(base, committed, config));
+  } else if (base) {
+    verdict.regressions.push('The baseline file was removed in this change; compared with the one on the base branch');
+  }
+  return verdict;
+}
+
+/**
+ * What the baseline of this change allows that the one on the base branch did not. The gate
+ * compares with the baseline committed in the branch, so without this a change could loosen
+ * its own bar unnoticed.
+ */
+export function baselineLoosening(base: Metrics, branch: Metrics, config: Config): string[] {
+  const patch: PatchCoverage = { status: 'skipped', reason: 'baseline comparison' };
+  return compare(base, branch, patch, config).regressions.map((item) => `Baseline loosened: ${item}`);
+}
+
+/**
+ * Values that got worse by less than the tolerance keep their baseline value, so rewriting
+ * the baseline cannot walk the bar down one tolerance at a time.
+ */
+export function holdTolerated(previous: Metrics, current: Metrics): Metrics {
+  const coverage = { ...current.coverage };
+  for (const key of COVERAGE_KEYS) coverage[key] = Math.max(previous.coverage[key], current.coverage[key]);
+  const percentage = Math.min(previous.duplication.percentage, current.duplication.percentage);
+  return { ...current, coverage, duplication: { ...current.duplication, percentage } };
+}
+
+/** Changed source files missing from the coverage report: their lines count for nothing in patch coverage. */
+export function unmeasuredWarning(files: string[]): string | null {
+  if (files.length === 0) return null;
+  const shown = files.slice(0, UNMEASURED_SHOWN).join(', ');
+  const hidden = files.length > UNMEASURED_SHOWN ? ` and ${files.length - UNMEASURED_SHOWN} more` : '';
+  const subject = files.length === 1 ? '1 changed file is' : `${files.length} changed files are`;
+  return `${subject} missing from the coverage report, so the new lines were not measured: ${shown}${hidden}. Add them to your test runner's coverage "include" if they contain code`;
 }
 
 function comparePatch(patch: PatchCoverage, options: Config['patchCoverage'], verdict: Verdict): void {
@@ -107,11 +162,9 @@ function label(key: CoverageKey): string {
 
 // --- Baseline file -----------------------------------------------------------
 
-export function toBaseline(metrics: Metrics, commit: string, tool: string, generatedAt: Date): Baseline {
+export function toBaseline(metrics: Metrics, tool: string): Baseline {
   return {
     schemaVersion: SCHEMA_VERSION,
-    generatedAt: generatedAt.toISOString(),
-    commit,
     tool,
     coverage: metrics.coverage,
     duplication: metrics.duplication,
@@ -132,8 +185,6 @@ export function parseBaseline(value: unknown, source: string): Baseline {
   const violations = numbers(value.violations, `${source}: violations`, ['qualityRules', 'oversizedFiles']);
   return {
     schemaVersion: SCHEMA_VERSION,
-    generatedAt: typeof value.generatedAt === 'string' ? value.generatedAt : '',
-    commit: typeof value.commit === 'string' ? value.commit : 'unknown',
     tool: typeof value.tool === 'string' ? value.tool : 'unknown',
     coverage: { lines: coverage.lines ?? 0, functions: coverage.functions ?? 0, branches: coverage.branches ?? 0 },
     duplication: { percentage: duplication.percentage ?? 0, fragments: duplication.fragments ?? 0 },

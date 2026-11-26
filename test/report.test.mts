@@ -13,10 +13,11 @@ function report(overrides: Partial<Report> = {}): Report {
     tool: 'node-quality-gate 0.1.0',
     status: verdict.regressions.length === 0 ? 'pass' : 'fail',
     generatedAt: '2026-10-03T12:00:00.000Z',
-    baselineSource: 'quality-gate.baseline.json (commit abc1234, 2026-10-01)',
+    baselineSource: 'quality-gate.baseline.json (last changed in abc1234, 2026-10-01)',
     baseline: BASELINE,
     current: CURRENT,
     patchCoverage: { status: 'measured', coverable: 45, covered: 40, percentage: 88.89 },
+    unmeasuredFiles: [],
     duplicatedBlocks: [],
     ...overrides,
   };
@@ -26,7 +27,7 @@ test('renderMarkdown shows the three tables with deltas, the lists and the marke
   const markdown = renderMarkdown(report(), DEFAULT_CONFIG);
   const expectedLines = [
     '## Quality gate ❌ 5 regressions',
-    'Baseline: quality-gate.baseline.json (commit abc1234, 2026-10-01)',
+    'Baseline: quality-gate.baseline.json (last changed in abc1234, 2026-10-01)',
     '| Lines | 7.16% | 10.42% | +3.26% |',
     '| Functions | 7.11% | 9.81% | +2.7% |',
     '| Branches | 5.48% | 7.97% | +2.49% |',
