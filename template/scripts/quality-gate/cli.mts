@@ -188,7 +188,9 @@ function measure(config: Config, baseOverride: string | undefined, cwd: string):
   }
   const coverage = parseLcov(readFileSync(lcovPath, 'utf8'), cwd);
   const lint = runEslint(config.eslint, resolve(cwd, REPORT_DIR, 'eslint.json'), cwd);
-  const excluded = excluder([...config.exclude, `${toRepoPath(dirname(fileURLToPath(import.meta.url)), cwd)}/**`]);
+  // The gate leaves its own folder out of an adopter's numbers; QG_INCLUDE_SELF is for the gate's own repository.
+  const self = `${toRepoPath(dirname(fileURLToPath(import.meta.url)), cwd)}/**`;
+  const excluded = excluder(process.env.QG_INCLUDE_SELF ? config.exclude : [...config.exclude, self]);
   const sources = readSources(lint.files.filter((file) => !excluded(file)), cwd);
   const changes = measureChanges(config, baseOverride, coverage, new Set(sources.keys()), cwd);
   const violations = countViolations(lint.messages, Object.keys(config.eslint.qualityRules), excluded);

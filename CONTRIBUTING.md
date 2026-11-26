@@ -18,8 +18,16 @@ a gate anyone can read in one sitting, so simplicity wins over features.
 
 ```sh
 npm ci
-npm run check      # typecheck + unit tests
+npm run check      # typecheck + lint + unit tests
 npm run test:e2e   # runs the template against example/ end to end
+```
+
+The gate runs on its own source in CI. To see what it will say, and to lock
+in an improvement:
+
+```sh
+npm run test:coverage
+QG_INCLUDE_SELF=1 npm run gate -- check      # or: baseline
 ```
 
 ## Commits and pull requests
