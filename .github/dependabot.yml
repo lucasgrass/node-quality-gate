@@ -1,0 +1,25 @@
+# Keeps this repository's own dependencies current. The file adopters copy is
+# template/.github/dependabot.yml.
+version: 2
+updates:
+  # SHA-pinned actions: this repository's CI and the workflows adopters copy.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /template/.github/workflows
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Dev dependencies of the repository and of the example used by the end-to-end test.
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /example
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        patterns: ["*"]
