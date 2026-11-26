@@ -99,7 +99,7 @@ config). Per runner:
 | Vitest | `coverage: { provider: 'v8', reporter: ['text', 'lcov'] }` in `vitest.config.ts`; script `vitest run --coverage` |
 | Jest | `coverageReporters: ['text', 'lcov']` in the Jest config; script `jest --coverage` |
 | c8 | `c8 --reporter=text --reporter=lcov <your test command>` |
-| `node --test` | `node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info` |
+| `node --test` | `node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination=stdout --test-reporter=lcov --test-reporter-destination=coverage/lcov.info` (create `coverage/` first, Node does not) |
 | Bun | `bun test --coverage --coverage-reporter=lcov` (Bun writes `coverage/lcov.info`; it cannot emit `json-summary`, which is why the gate reads lcov) |
 
 ### 3. Check the environment
@@ -153,7 +153,9 @@ Exit code 2 means a usage or environment problem (missing coverage report,
 invalid config, ESLint could not run), never a quality verdict.
 
 Environment variables: `QG_ESLINT_COMMAND` overrides `eslint.command` (the
-pnpm, Yarn and Bun workflows use it); `GITHUB_BASE_REF`, `GITHUB_ACTIONS` and
+pnpm, Yarn and Bun workflows use it); `QG_INCLUDE_SELF=1` makes the gate
+measure its own folder too (this repository uses it to run the gate on
+itself); `GITHUB_BASE_REF`, `GITHUB_ACTIONS` and
 `GITHUB_STEP_SUMMARY` are read when present.
 
 ## What counts as a regression

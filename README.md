@@ -144,6 +144,10 @@ example/                  tiny Vitest + ESLint project used by the end-to-end te
 test/                     unit tests (node:test) and the end-to-end run
 ```
 
+The repository runs the gate on itself: `quality-gate.config.json` and
+`quality-gate.baseline.json` at the root are its own, checked by the CI on
+every pull request.
+
 ## Inspired by
 
 The pipeline shape (install → audit → lint → coverage → ratchet → sticky

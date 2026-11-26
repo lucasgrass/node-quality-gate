@@ -1,0 +1,4 @@
+{
+  "patchCoverage": { "mode": "block" },
+  "baseline": { "loosening": "block" }
+}

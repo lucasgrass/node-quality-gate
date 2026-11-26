@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "tool": "node-quality-gate 0.1.0",
+  "coverage": {
+    "lines": 95.51,
+    "functions": 96.55,
+    "branches": 86.75
+  },
+  "duplication": {
+    "percentage": 0,
+    "fragments": 0
+  },
+  "violations": {
+    "qualityRules": 8,
+    "oversizedFiles": 0
+  },
+  "oversized": {},
+  "ruleViolations": {
+    "template/scripts/quality-gate/cli.mts": {
+      "max-params": 1
+    },
+    "template/scripts/quality-gate/duplication.mts": {
+      "max-params": 1
+    },
+    "template/scripts/quality-gate/ratchet.mts": {
+      "max-params": 4
+    },
+    "template/scripts/quality-gate/report.mts": {
+      "max-params": 1
+    },
+    "test/e2e/run.mts": {
+      "max-params": 1
+    }
+  }
+}

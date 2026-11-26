@@ -20,6 +20,8 @@ Adopters copy files from `template/`; the version in the header of
   branch: loosened values are reported (`baseline.loosening`: `warn` or
   `block`), and a deleted baseline no longer resets the gate.
 - A warning when a changed source file is missing from the coverage report.
+- `QG_INCLUDE_SELF=1` makes the gate measure its own folder; this repository
+  now runs the gate on itself in CI.
 
 ### Changed
 
