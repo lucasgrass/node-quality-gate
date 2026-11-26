@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "tool": "node-quality-gate 0.1.0",
+  "tool": "node-quality-gate 0.1.1",
   "coverage": {
     "lines": 95.51,
     "functions": 96.55,

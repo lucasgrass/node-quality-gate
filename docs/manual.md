@@ -230,7 +230,7 @@ typos cannot silently disable a check.
 ```json
 {
   "schemaVersion": 1,
-  "tool": "node-quality-gate 0.1.0",
+  "tool": "node-quality-gate 0.1.1",
   "coverage": { "lines": 9.09, "functions": 25, "branches": 0 },
   "duplication": { "percentage": 0, "fragments": 0 },
   "violations": { "qualityRules": 3, "oversizedFiles": 0 },

@@ -1,4 +1,4 @@
-# node-quality-gate v0.1.0 — https://github.com/lucasgrass/node-quality-gate
+# node-quality-gate v0.1.1 — https://github.com/lucasgrass/node-quality-gate
 # Quality gate for projects using Yarn (Berry, 2+). Copy to .github/workflows/quality-gate.yml.
 #
 # Expects in your project:
