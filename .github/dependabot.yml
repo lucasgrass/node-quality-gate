@@ -23,3 +23,7 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+    ignore:
+      # The types follow the oldest Node the gate supports; a new major is a manual decision.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]

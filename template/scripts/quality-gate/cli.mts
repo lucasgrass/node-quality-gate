@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * node-quality-gate v0.1.0 — https://github.com/lucasgrass/node-quality-gate
+ * node-quality-gate v0.1.1 — https://github.com/lucasgrass/node-quality-gate
  *
  * A ratchet: compares the repository with a committed baseline and fails when anything
  * gets worse. Measures coverage (lcov), coverage of the changed lines, lint quality-rule
@@ -37,7 +37,7 @@ import { annotations, renderMarkdown, truncate } from './report.mts';
 import type { Baseline, DuplicatedBlock, Metrics, PatchCoverage, Report } from './types.mts';
 import { git, toRepoPath } from './util.mts';
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.1.1';
 const TOOL = `node-quality-gate ${VERSION}`;
 const MIN_NODE = [22, 18] as const;
 const STEP_SUMMARY_LIMIT = 1_000_000;
