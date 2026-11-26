@@ -7,7 +7,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
 Adopters copy files from `template/`; the version in the header of
 `scripts/quality-gate/cli.mts` tells you which release your copy came from.
 
-## [Unreleased]
+## [0.1.0] - 2026-11-26
 
 ### Added
 
