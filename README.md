@@ -71,6 +71,42 @@ diff in a pull request. A pull request that lowers the bar is called out in
 its own report (or blocked, if you prefer), and deleting the file does not
 reset anything.
 
+## Why not just write the rules in AGENTS.md
+
+"Keep coverage up, avoid duplication, keep functions small" in `AGENTS.md`,
+`CLAUDE.md` or a contributing guide is a request. The gate is a check. They
+do different jobs:
+
+| | Instructions file | Quality gate |
+|---|---|---|
+| Who it reaches | Agents that read that file, when they read it | Every pull request: any agent, any editor, any human |
+| What happens when it is ignored | Nothing | The check is red and the merge is blocked |
+| Depends on | The model following a long prompt to the end of a long session | An exit code |
+| Knows the numbers | No; "do not lower coverage" needs someone to measure it | Measures them and keeps the bar in a committed file |
+| Who verifies | The author, about their own work | CI, whatever the author reported |
+| Cost | Context on every session | A CI job of a few seconds |
+
+Three consequences worth spelling out:
+
+- **It does not depend on the model.** A large model follows written rules
+  most of the time; a smaller or cheaper one, or any model deep into a long
+  task, drops them more often. A failing check does not vary with the model.
+- **It gives the agent something to act on.** `max-depth violations increased
+  in src/api.ts (2 -> 4)` is a precise, local task, the kind agents of any
+  size fix reliably. "Write clean code" is not.
+- **It cannot be talked around.** An agent can report that everything passes,
+  and it can rewrite the baseline; the gate measures for itself and reports a
+  loosened baseline in the same pull request.
+
+Use both. Keep the instructions file for what cannot be measured
+(architecture, naming, how the team works) and add one line that points at
+the gate:
+
+```md
+Before you finish, run `npm run lint && npm run test:coverage && node scripts/quality-gate/cli.mts check`
+and fix every regression it lists. Do not run `baseline --allow-regression`.
+```
+
 ## Quick start
 
 1. Copy from [`template/`](template/) into your project:
