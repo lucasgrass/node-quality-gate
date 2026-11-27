@@ -22,6 +22,9 @@ test('resolveConfig merges partial sections over the defaults', () => {
 });
 
 test('resolveConfig rejects unknown keys and wrong types', () => {
+  assert.throws(() => resolveConfig({ untestedFiles: { mode: 'off' } }), /"untestedFiles.mode" must be "warn" or "block"/);
+  assert.throws(() => resolveConfig({ newDependencies: { mode: 'fail' } }), /"newDependencies.mode" must be "warn" or "block"/);
+  assert.throws(() => resolveConfig({ newDependencies: { sections: 'dependencies' } }), /"newDependencies.sections" must be an array of strings/);
   const bad: Array<[unknown, RegExp]> = [
     [[], /must be a JSON object/],
     [{ covrage: {} }, /unknown key "covrage"/],

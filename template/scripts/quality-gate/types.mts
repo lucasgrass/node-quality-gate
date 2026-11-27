@@ -29,6 +29,9 @@ export type PatchCoverage =
   | { status: 'measured'; coverable: number; covered: number; percentage: number }
   | { status: 'skipped'; reason: string };
 
+/** A dependency the change adds to a section of package.json. */
+export type NewDependency = { name: string; version: string; section: string };
+
 export type DuplicatedBlock = { file: string; startLine: number; endLine: number };
 
 export type Verdict = { regressions: string[]; warnings: string[]; improvements: string[] };
@@ -43,5 +46,8 @@ export type Report = Verdict & {
   patchCoverage: PatchCoverage;
   /** Changed source files the coverage report does not mention. */
   unmeasuredFiles: string[];
+  /** New source files the coverage report lists without a single line hit. */
+  untestedFiles: string[];
+  newDependencies: NewDependency[];
   duplicatedBlocks: DuplicatedBlock[];
 };

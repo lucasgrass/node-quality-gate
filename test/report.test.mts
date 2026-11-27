@@ -18,6 +18,8 @@ function report(overrides: Partial<Report> = {}): Report {
     current: CURRENT,
     patchCoverage: { status: 'measured', coverable: 45, covered: 40, percentage: 88.89 },
     unmeasuredFiles: [],
+    untestedFiles: [],
+    newDependencies: [],
     duplicatedBlocks: [],
     ...overrides,
   };

@@ -6,7 +6,9 @@ import {
   measurePatchCoverage,
   parseAddedLines,
   parseLcov,
+  parseNewFiles,
   unmeasuredFiles,
+  untestedFiles,
 } from '../template/scripts/quality-gate/coverage.mts';
 
 const CWD = '/repo';
@@ -112,4 +114,36 @@ test('addUntracked counts every instrumented line of an untracked file as added'
     ['src/a.ts', [1]],
     ['src/b.ts', [10, 11]],
   ]);
+});
+
+test('parseNewFiles lists the files a diff creates, not the ones it modifies', () => {
+  const diff = [
+    'diff --git a/src/new.ts b/src/new.ts',
+    'new file mode 100644',
+    '--- /dev/null',
+    '+++ b/src/new.ts',
+    '@@ -0,0 +1,2 @@',
+    '+export const a = 1;',
+    '+--- /dev/null',
+    'diff --git a/src/old.ts b/src/old.ts',
+    '--- a/src/old.ts',
+    '+++ b/src/old.ts',
+    '@@ -3,0 +4 @@',
+    '+export const b = 2;',
+  ].join('\n');
+  assert.deepEqual(parseNewFiles(diff), ['src/new.ts']);
+  assert.deepEqual(parseNewFiles(''), []);
+});
+
+test('untestedFiles lists new sources the report covers with no line hit', () => {
+  const lcov = [
+    'SF:src/idle.ts\nDA:1,0\nDA:2,0\nLF:2\nLH:0\nend_of_record',
+    'SF:src/used.ts\nDA:1,3\nLF:1\nLH:1\nend_of_record',
+    'SF:src/types.ts\nLF:0\nLH:0\nend_of_record',
+    'SF:src/idle.test.ts\nDA:1,0\nLF:1\nLH:0\nend_of_record',
+  ].join('\n');
+  const coverage = parseLcov(lcov, CWD);
+  const sources = new Set(['src/idle.ts', 'src/used.ts', 'src/types.ts', 'src/absent.ts']);
+  const created = ['src/used.ts', 'src/idle.ts', 'src/idle.ts', 'src/types.ts', 'src/absent.ts', 'src/idle.test.ts'];
+  assert.deepEqual(untestedFiles(created, coverage, sources), ['src/idle.ts']);
 });

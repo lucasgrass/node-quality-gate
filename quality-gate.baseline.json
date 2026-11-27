@@ -2,23 +2,20 @@
   "schemaVersion": 1,
   "tool": "node-quality-gate 0.1.1",
   "coverage": {
-    "lines": 95.51,
-    "functions": 96.55,
-    "branches": 86.75
+    "lines": 95.85,
+    "functions": 96.69,
+    "branches": 88.74
   },
   "duplication": {
     "percentage": 0,
     "fragments": 0
   },
   "violations": {
-    "qualityRules": 8,
+    "qualityRules": 7,
     "oversizedFiles": 0
   },
   "oversized": {},
   "ruleViolations": {
-    "template/scripts/quality-gate/cli.mts": {
-      "max-params": 1
-    },
     "template/scripts/quality-gate/duplication.mts": {
       "max-params": 1
     },

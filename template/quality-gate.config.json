@@ -7,6 +7,12 @@
     "minLines": 20,
     "baseRef": "origin/main"
   },
+  "untestedFiles": { "enabled": true, "mode": "warn" },
+  "newDependencies": {
+    "enabled": true,
+    "mode": "warn",
+    "sections": ["dependencies", "optionalDependencies", "peerDependencies"]
+  },
   "eslint": {
     "command": "npx eslint",
     "args": ["."],

@@ -20,6 +20,8 @@ export type Config = {
     minLines: number;
     baseRef: string;
   };
+  untestedFiles: { enabled: boolean; mode: Mode };
+  newDependencies: { enabled: boolean; mode: Mode; sections: string[] };
   eslint: { command: string; args: string[]; qualityRules: Record<string, QualityRuleOption> };
   size: { maxLines: number; maxBytes: number };
   duplication: { minLines: number; minTokens: number; tolerance: number };
@@ -30,6 +32,8 @@ export type Config = {
 export const DEFAULT_CONFIG: Config = {
   coverage: { lcov: 'coverage/lcov.info', tolerance: 0.1 },
   patchCoverage: { enabled: true, mode: 'warn', threshold: 80, minLines: 20, baseRef: 'origin/main' },
+  untestedFiles: { enabled: true, mode: 'warn' },
+  newDependencies: { enabled: true, mode: 'warn', sections: ['dependencies', 'optionalDependencies', 'peerDependencies'] },
   eslint: {
     command: 'npx eslint',
     args: ['.'],
@@ -83,6 +87,8 @@ export function resolveConfig(raw: unknown): Config {
     }
   }
   checkMode('patchCoverage.mode', config.patchCoverage.mode);
+  checkMode('untestedFiles.mode', config.untestedFiles.mode);
+  checkMode('newDependencies.mode', config.newDependencies.mode);
   checkMode('baseline.loosening', config.baseline.loosening);
   return config;
 }

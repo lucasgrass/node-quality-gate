@@ -3,7 +3,7 @@
  * baseline; `parseBaseline`/`toBaseline` read and write quality-gate.baseline.json.
  * Pure functions only.
  */
-import type { Config } from './config.mts';
+import type { Config, Mode } from './config.mts';
 import type {
   Baseline,
   CoverageKey,
@@ -11,6 +11,7 @@ import type {
   DuplicationMetrics,
   FileSize,
   Metrics,
+  NewDependency,
   PatchCoverage,
   RuleCounts,
   Verdict,
@@ -19,7 +20,7 @@ import { COVERAGE_KEYS } from './types.mts';
 import { isRecord, pct, sortRecord } from './util.mts';
 
 export const SCHEMA_VERSION = 1;
-const UNMEASURED_SHOWN = 5;
+const LIST_SHOWN = 5;
 
 export function compare(baseline: Metrics | null, current: Metrics, patch: PatchCoverage, config: Config): Verdict {
   const verdict: Verdict = { regressions: [], warnings: [], improvements: [] };
@@ -42,16 +43,19 @@ export type Evidence = {
   current: Metrics;
   patch: PatchCoverage;
   unmeasured: string[];
+  untested: string[];
+  dependencies: NewDependency[];
 };
 
 /** The full verdict of `check`: the ratchet itself plus what the change did to the baseline and to coverage reporting. */
-export function judge({ committed, base, current, patch, unmeasured }: Evidence, config: Config): Verdict {
+export function judge(evidence: Evidence, config: Config): Verdict {
+  const { committed, base, current, patch } = evidence;
   const verdict = compare(committed ?? base, current, patch, config);
-  const warning = unmeasuredWarning(unmeasured);
-  if (warning) verdict.warnings.push(warning);
+  note(verdict, 'warn', unmeasuredWarning(evidence.unmeasured));
+  note(verdict, config.untestedFiles.mode, untestedWarning(evidence.untested));
+  note(verdict, config.newDependencies.mode, dependenciesWarning(evidence.dependencies));
   if (base && committed) {
-    const target = config.baseline.loosening === 'block' ? verdict.regressions : verdict.warnings;
-    target.push(...baselineLoosening(base, committed, config));
+    for (const item of baselineLoosening(base, committed, config)) note(verdict, config.baseline.loosening, item);
   } else if (base) {
     verdict.regressions.push('The baseline file was removed in this change; compared with the one on the base branch');
   }
@@ -82,10 +86,33 @@ export function holdTolerated(previous: Metrics, current: Metrics): Metrics {
 /** Changed source files missing from the coverage report: their lines count for nothing in patch coverage. */
 export function unmeasuredWarning(files: string[]): string | null {
   if (files.length === 0) return null;
-  const shown = files.slice(0, UNMEASURED_SHOWN).join(', ');
-  const hidden = files.length > UNMEASURED_SHOWN ? ` and ${files.length - UNMEASURED_SHOWN} more` : '';
   const subject = files.length === 1 ? '1 changed file is' : `${files.length} changed files are`;
-  return `${subject} missing from the coverage report, so the new lines were not measured: ${shown}${hidden}. Add them to your test runner's coverage "include" if they contain code`;
+  return `${subject} missing from the coverage report, so the new lines were not measured: ${shortList(files)}. Add them to your test runner's coverage "include" if they contain code`;
+}
+
+/** New source files the coverage report lists without a single line hit. */
+export function untestedWarning(files: string[]): string | null {
+  if (files.length === 0) return null;
+  const subject = files.length === 1 ? '1 new file has' : `${files.length} new files have`;
+  return `${subject} no line covered by a test: ${shortList(files)}`;
+}
+
+/** Dependencies the change adds to package.json: each one is code nobody in the repository wrote or reviewed. */
+export function dependenciesWarning(added: NewDependency[]): string | null {
+  if (added.length === 0) return null;
+  const subject = added.length === 1 ? '1 new dependency' : `${added.length} new dependencies`;
+  const names = added.map(({ name, version, section }) => `${name}@${version} (${section})`);
+  return `${subject} in package.json: ${shortList(names)}. Confirm each one is needed and is the package you meant`;
+}
+
+function shortList(items: string[]): string {
+  const hidden = items.length > LIST_SHOWN ? ` and ${items.length - LIST_SHOWN} more` : '';
+  return `${items.slice(0, LIST_SHOWN).join(', ')}${hidden}`;
+}
+
+/** Files a finding where its mode says: a warning, or a regression that fails the gate. */
+function note(verdict: Verdict, mode: Mode, message: string | null): void {
+  if (message !== null) (mode === 'block' ? verdict.regressions : verdict.warnings).push(message);
 }
 
 function comparePatch(patch: PatchCoverage, options: Config['patchCoverage'], verdict: Verdict): void {
@@ -93,7 +120,7 @@ function comparePatch(patch: PatchCoverage, options: Config['patchCoverage'], ve
   const message =
     `Patch coverage ${pct(patch.percentage)} is below the minimum of ${pct(options.threshold)} ` +
     `(${patch.covered} of ${patch.coverable} changed lines covered)`;
-  (options.mode === 'block' ? verdict.regressions : verdict.warnings).push(message);
+  note(verdict, options.mode, message);
 }
 
 function compareCoverage(before: CoverageMetrics, after: CoverageMetrics, tolerance: number, verdict: Verdict): void {
