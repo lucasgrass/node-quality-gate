@@ -1,6 +1,6 @@
 {
   "name": "node-quality-gate",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Ratchet-style quality gate for Node repositories: copy a script and a workflow, and never let coverage, lint or duplication get worse.",
   "license": "MIT",
