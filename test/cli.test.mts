@@ -115,3 +115,48 @@ test('a new source file the coverage report does not mention is called out', () 
   git('commit', '--quiet', '--message', 'untested module');
   assert.match(gate('check').output, /1 changed file is missing from the coverage report.*src\/untested\.ts/);
 });
+
+test('a new file no test touches and a new dependency are warned about, or block when configured', () => {
+  const manifest = join(repo, 'package.json');
+  git('switch', '--quiet', 'main');
+  writeFileSync(manifest, JSON.stringify({ dependencies: { express: '^5.0.0' }, devDependencies: { vitest: '^3.0.0' } }));
+  git('add', '.');
+  git('commit', '--quiet', '--message', 'manifest');
+  git('switch', '--quiet', '--create', 'additions');
+  assert.doesNotMatch(gate('check').output, /### Warnings/);
+
+  writeFileSync(manifest, JSON.stringify({ dependencies: { express: '^5.1.0', 'left-pad': '^1.3.0' }, devDependencies: { vitest: '^3.0.0', tsx: '^4.0.0' } }));
+  writeFileSync(join(repo, 'src/idle.ts'), 'export const idle = 3;\n');
+  const lcov = 'SF:src/a.ts\nDA:1,1\nLF:10000\nLH:8000\nend_of_record\nSF:src/idle.ts\nDA:1,0\nLF:1\nLH:0\nend_of_record\n';
+  writeFileSync(join(repo, 'coverage/lcov.info'), lcov);
+  const untested = '1 new file has no line covered by a test: src/idle.ts';
+  const dependency = '1 new dependency in package.json: left-pad@^1.3.0 (dependencies). Confirm each one is needed and is the package you meant';
+
+  const warned = gate('check');
+  assert.equal(warned.status, 0, warned.output);
+  assert.ok(warned.output.includes(`### Warnings\n\n- ${untested}\n- ${dependency}`), warned.output);
+  const report = JSON.parse(readFileSync(join(repo, 'reports/quality-gate.json'), 'utf8')) as Record<string, unknown>;
+  assert.deepEqual(report.untestedFiles, ['src/idle.ts']);
+  assert.deepEqual(report.newDependencies, [{ name: 'left-pad', version: '^1.3.0', section: 'dependencies' }]);
+
+  git('add', '.');
+  git('commit', '--quiet', '--message', 'additions');
+  const config = join(repo, 'quality-gate.config.json');
+  writeFileSync(config, JSON.stringify({ untestedFiles: { mode: 'block' }, newDependencies: { mode: 'block', sections: ['devDependencies'] } }));
+  const blocked = gate('check');
+  assert.equal(blocked.status, 1, blocked.output);
+  assert.ok(blocked.output.includes(`### Regressions\n\n- ${untested}\n- 1 new dependency in package.json: tsx@^4.0.0 (devDependencies).`), blocked.output);
+
+  writeFileSync(config, JSON.stringify({ patchCoverage: { enabled: false }, untestedFiles: { enabled: false }, newDependencies: { enabled: false } }));
+  const disabled = gate('check');
+  assert.equal(disabled.status, 0, disabled.output);
+  assert.doesNotMatch(disabled.output, /### Warnings|Patch coverage/);
+  rmSync(config);
+});
+
+test('an unknown command and a malformed --to are usage errors', () => {
+  assert.match(gate('frobnicate').output, /unknown command "frobnicate" \(use check, baseline, doctor or upgrade\)/);
+  const malformed = gate('upgrade', '--to', 'latest');
+  assert.equal(malformed.status, 2);
+  assert.match(malformed.output, /quality-gate: "latest" is not a version/);
+});

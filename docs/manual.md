@@ -14,6 +14,8 @@ cannot regress.
 - [The baseline file](#the-baseline-file)
 - [The workflow, step by step](#the-workflow-step-by-step)
 - [Patch coverage](#patch-coverage)
+- [New files without tests](#new-files-without-tests)
+- [New dependencies](#new-dependencies)
 - [Duplication](#duplication)
 - [ESLint notes](#eslint-notes)
 - [Package manager notes](#package-manager-notes)
@@ -36,6 +38,8 @@ the repository and compares it with `quality-gate.baseline.json`:
 |---|---|---|
 | Lines, functions, branches coverage | `coverage/lcov.info` | a value drops more than the tolerance |
 | Patch coverage (changed lines) | lcov + `git diff` | below the threshold (warning by default) |
+| New files without tests | lcov + `git diff` | a new source file has no line covered (warning by default) |
+| New dependencies | `package.json` against the base branch | the change adds a dependency (warning by default) |
 | Quality rule violations | ESLint, rules injected as warnings | the total grows, or a file/rule pair grows |
 | Oversized files | file sizes | a new file crosses the limit, or an oversized file grows |
 | Duplication | built-in detector | the percentage or the number of fragments grows |
@@ -64,7 +68,7 @@ From the `template/` folder of this repository into the root of your project:
 
 | From `template/` | To your project | Purpose |
 |---|---|---|
-| `scripts/quality-gate/` | `scripts/quality-gate/` | the gate (9 small files, no dependencies) |
+| `scripts/quality-gate/` | `scripts/quality-gate/` | the gate (11 small files, no dependencies) |
 | `quality-gate.config.json` | `quality-gate.config.json` | limits and tolerances; every key is optional |
 | `.github/workflows/quality-gate.<pm>.yml` | `.github/workflows/quality-gate.yml` | pick `npm`, `pnpm`, `yarn` or `bun` |
 | `.github/dependabot.yml` | `.github/dependabot.yml` | keeps the pinned actions current (merge with yours if you have one) |
@@ -141,12 +145,15 @@ node scripts/quality-gate/cli.mts <command> [options]
 | `check` | Measures, compares with the baseline, writes `reports/quality-gate.md` and `.json`, appends the job summary and prints annotations in GitHub Actions | 0 pass, 1 regressions |
 | `baseline` | Measures and writes `quality-gate.baseline.json`. Refuses if the result would be worse than the current baseline | 0 written, 1 refused |
 | `doctor` | Checks the environment before the first run | 0 ok, 2 problems |
+| `upgrade` | Replaces `scripts/quality-gate/` with the latest release of the template, downloaded from GitHub. See [Updating your copy](#updating-your-copy) | 0 done or nothing to do, 2 could not download |
 
 | Option | Meaning |
 |---|---|
 | `--config <path>` | Config file (default `quality-gate.config.json`; defaults apply when it is missing) |
 | `--base <ref>` | Git ref of the base branch, used for patch coverage and to read the base branch's baseline (default: `origin/<GITHUB_BASE_REF>` on pull requests, else `patchCoverage.baseRef`) |
 | `--allow-regression` | Let `baseline` record values worse than the current baseline, on purpose |
+| `--to <version>` | The version `upgrade` installs (default: the latest release) |
+| `--check` | With `upgrade`: only say whether another version is available |
 | `--version`, `--help` | |
 
 Exit code 2 means a usage or environment problem (missing coverage report,
@@ -172,6 +179,8 @@ itself); `GITHUB_BASE_REF`, `GITHUB_ACTIONS` and
 | Baseline loosened | the baseline in the pull request allows something the one on the base branch did not; warning in `warn` mode, regression in `block` mode | `Baseline loosened: Lines coverage dropped from 80% to 50%` |
 | Baseline removed | the base branch has a baseline and the pull request deletes it; the gate compares with the base branch's and fails | `The baseline file was removed in this change; compared with the one on the base branch` |
 | Unmeasured files (warning) | a changed source file is missing from the coverage report while files next to it are covered | `1 changed file is missing from the coverage report, so the new lines were not measured: src/new.ts. ...` |
+| New files without tests | a source file the pull request creates is in the coverage report with no line hit; warning in `warn` mode, regression in `block` mode | `1 new file has no line covered by a test: src/new.ts` |
+| New dependencies | `package.json` has a name in one of `newDependencies.sections` that the base branch's does not; warning in `warn` mode, regression in `block` mode | `1 new dependency in package.json: left-pad@^1.3.0 (dependencies). ...` |
 | New oversized file | file not in the baseline is over `size.maxLines` or `size.maxBytes` | `src/big.ts crossed the limit with 500 lines and 21000 bytes` |
 | Oversized file grew | lines or bytes above the baseline entry | `src/big.ts grew from 1008 to 1140 lines while already over the limit` |
 
@@ -189,6 +198,8 @@ typos cannot silently disable a check.
 {
   "coverage": { "lcov": "coverage/lcov.info", "tolerance": 0.1 },
   "patchCoverage": { "enabled": true, "mode": "warn", "threshold": 80, "minLines": 20, "baseRef": "origin/main" },
+  "untestedFiles": { "enabled": true, "mode": "warn" },
+  "newDependencies": { "enabled": true, "mode": "warn", "sections": ["dependencies", "optionalDependencies", "peerDependencies"] },
   "eslint": {
     "command": "npx eslint",
     "args": ["."],
@@ -213,6 +224,11 @@ typos cannot silently disable a check.
 | `patchCoverage.threshold` | `80` | Minimum percentage of changed, instrumented lines that must be covered (SonarQube's default) |
 | `patchCoverage.minLines` | `20` | Skip the check when fewer changed lines are coverable (SonarQube's rule for small changes) |
 | `patchCoverage.baseRef` | `"origin/main"` | Base branch outside pull requests, for the diff and for the baseline comparison |
+| `untestedFiles.enabled` | `true` | Look for new source files without a single covered line |
+| `untestedFiles.mode` | `"warn"` | `"warn"` lists them under Warnings; `"block"` makes them a regression |
+| `newDependencies.enabled` | `true` | Compare `package.json` with the one on the base branch |
+| `newDependencies.mode` | `"warn"` | `"warn"` lists the new dependencies under Warnings; `"block"` makes them a regression |
+| `newDependencies.sections` | `dependencies`, `optionalDependencies`, `peerDependencies` | The sections of `package.json` that are watched; add `"devDependencies"` to watch those too |
 | `eslint.command` | `"npx eslint"` | How to start ESLint; `pnpm exec eslint`, `yarn eslint`, `bunx eslint` |
 | `eslint.args` | `["."]` | What to lint; the gate appends `--format json --output-file reports/eslint.json` and the rules |
 | `eslint.qualityRules` | ESLint's defaults | Rules counted as quality violations, each with its option (`true` for rules without options). They run at warning level on top of your config |
@@ -339,6 +355,61 @@ It starts as a **warning** so legacy repositories can adopt the gate without
 rewriting their tests first. When the team is ready, set
 `"patchCoverage": { "mode": "block" }`.
 
+## New files without tests
+
+Patch coverage is a percentage over the whole pull request, so one new module
+that no test touches can hide behind well-tested changes elsewhere, and under
+`minLines` coverable lines the check does not run at all. This check looks at
+each file on its own: a source file the pull request **creates** (or that git
+does not track yet) that the coverage report lists with lines to cover and
+none of them hit.
+
+```
+1 new file has no line covered by a test: src/billing/refund.ts
+```
+
+Only files the report mentions can be judged. A new file that is absent from
+the report gets the "missing from the coverage report" warning described
+under [Patch coverage](#patch-coverage) instead; list your sources in the
+runner's coverage `include` and both cases become this one. Modified files
+are left to patch coverage, and files matched by `exclude` are ignored.
+
+It is a warning by default. `"untestedFiles": { "mode": "block" }` makes it a
+regression; `"enabled": false` turns it off.
+
+## New dependencies
+
+A dependency is code nobody in the repository wrote or reviewed, and it is
+the cheapest line of a pull request to add: one entry in `package.json`. It
+is also where coding agents go wrong in a specific way, by installing a
+package for something the standard library does, or one whose name is
+slightly off. The gate compares `package.json` in the pull request with the
+one at the merge base and lists every name that is new:
+
+```
+2 new dependencies in package.json: left-pad@^1.3.0 (dependencies), react@>=18 (peerDependencies). Confirm each one is needed and is the package you meant
+```
+
+- Watched sections: `dependencies`, `optionalDependencies` and
+  `peerDependencies`. Add `"devDependencies"` to `newDependencies.sections`
+  if you want those reported too.
+- A new version of a dependency you already have is not reported, so
+  Dependabot pull requests stay quiet. A dependency moved from
+  `devDependencies` to `dependencies` is, because it now ships.
+- The `package.json` read is the one in the folder where the gate runs. A
+  package that is new in the pull request has nothing to be compared with and
+  is skipped.
+- The list is also in `reports/quality-gate.json`, under `newDependencies`.
+
+It is a warning by default: the reviewer sees it in the pull request comment
+and decides. `"newDependencies": { "mode": "block" }` makes it a regression,
+which suits repositories where a new dependency needs an explicit approval
+(someone allowed to bypass the required check).
+
+Both checks need the base branch, like patch coverage (`fetch-depth: 0` in the
+workflow). They read the diff, not the baseline, so they add nothing to
+`quality-gate.baseline.json`.
+
 ## Duplication
 
 The detector is built in, so there is nothing to install, and it follows the
@@ -435,10 +506,36 @@ A single aggregated gate is on the roadmap.
 
 The first line of `scripts/quality-gate/cli.mts` and of each workflow states
 the template version; `node scripts/quality-gate/cli.mts --version` prints it.
-To update, copy the new `scripts/quality-gate/` over yours, read the
-[CHANGELOG](../CHANGELOG.md) for config or baseline changes, and diff the
-workflow against the template (your edits are usually the script names and
-the Node version). A baseline with an old `schemaVersion` is rejected with a
+
+```sh
+node scripts/quality-gate/cli.mts upgrade --check   # is there a newer release?
+node scripts/quality-gate/cli.mts upgrade           # install it
+node scripts/quality-gate/cli.mts upgrade --to 0.2.0
+```
+
+`upgrade` asks GitHub for the latest release of this repository, downloads
+its `template/scripts/quality-gate/` and writes it over yours. Then it prints:
+
+- the [CHANGELOG](../CHANGELOG.md) entries between your version and the new
+  one, which is where config and baseline changes are announced;
+- whether the workflow templates changed in more than their version stamp.
+  Your workflow is never touched, because you edited it (script names, Node
+  version); when the template did change, the command links to the diff
+  between the two releases so you can apply what applies.
+
+What it does not do: it does not commit, it does not edit your config or your
+baseline, and it does not delete files (a file the template dropped is named
+so you can remove it). Everything is downloaded before anything is written,
+so a failed download leaves your copy as it was. The result is an ordinary
+diff: review it, run `check`, commit it in a pull request.
+
+The command needs network access to `api.github.com` and
+`raw.githubusercontent.com` and sends nothing about your repository. Releases
+0.1.0 and 0.1.1 do not have it: update those once by hand, copying the new
+`scripts/quality-gate/` over yours.
+
+New config keys always have a default, so an old `quality-gate.config.json`
+keeps working. A baseline with an old `schemaVersion` is rejected with a
 message asking you to run `baseline` again.
 
 ## Troubleshooting

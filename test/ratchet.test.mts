@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { DEFAULT_CONFIG, type Config } from '../template/scripts/quality-gate/config.mts';
-import { compare, holdTolerated, judge, parseBaseline, toBaseline, unmeasuredWarning } from '../template/scripts/quality-gate/ratchet.mts';
+import {
+  compare,
+  dependenciesWarning,
+  holdTolerated,
+  judge,
+  parseBaseline,
+  toBaseline,
+  unmeasuredWarning,
+  untestedWarning,
+} from '../template/scripts/quality-gate/ratchet.mts';
 import type { Metrics, PatchCoverage } from '../template/scripts/quality-gate/types.mts';
 
 const LLM = 'electron/local-llm/LocalLLMService.js';
@@ -98,7 +107,7 @@ test('toBaseline and parseBaseline round-trip, and the schema version is enforce
 
 test('judge reports a baseline loosened by the change, as a warning or as a regression', () => {
   const loosened: Metrics = { ...BASELINE, coverage: { ...BASELINE.coverage, lines: 5 }, violations: { qualityRules: 500, oversizedFiles: 19 } };
-  const evidence = { committed: loosened, base: BASELINE, current: loosened, patch: SKIPPED, unmeasured: [] };
+  const evidence = { committed: loosened, base: BASELINE, current: loosened, patch: SKIPPED, unmeasured: [], untested: [], dependencies: [] };
   const messages = [
     'Baseline loosened: Lines coverage dropped from 7.16% to 5%',
     'Baseline loosened: Quality rule violations increased from 483 to 500',
@@ -113,7 +122,7 @@ test('judge reports a baseline loosened by the change, as a warning or as a regr
 
 test('judge falls back to the base baseline when the change deletes the file', () => {
   const worse: Metrics = { ...BASELINE, coverage: { ...BASELINE.coverage, lines: 5 } };
-  const verdict = judge({ committed: null, base: BASELINE, current: worse, patch: SKIPPED, unmeasured: [] }, DEFAULT_CONFIG);
+  const verdict = judge({ committed: null, base: BASELINE, current: worse, patch: SKIPPED, unmeasured: [], untested: [], dependencies: [] }, DEFAULT_CONFIG);
   assert.deepEqual(verdict.regressions, [
     'Lines coverage dropped from 7.16% to 5%',
     'The baseline file was removed in this change; compared with the one on the base branch',
@@ -137,4 +146,40 @@ test('unmeasuredWarning names the files and caps the list', () => {
   assert.match(unmeasuredWarning(['src/a.ts']) ?? '', /^1 changed file is missing from the coverage report.*: src\/a\.ts\. /);
   const many = unmeasuredWarning(['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((name) => `src/${name}.ts`)) ?? '';
   assert.match(many, /^7 changed files are missing .*src\/e\.ts and 2 more\. /);
+});
+
+test('untestedWarning and dependenciesWarning name what the change added', () => {
+  assert.equal(untestedWarning([]), null);
+  assert.equal(untestedWarning(['src/a.ts']), '1 new file has no line covered by a test: src/a.ts');
+  assert.equal(untestedWarning(['src/a.ts', 'src/b.ts']), '2 new files have no line covered by a test: src/a.ts, src/b.ts');
+  assert.equal(dependenciesWarning([]), null);
+  assert.equal(
+    dependenciesWarning([{ name: 'left-pad', version: '^1.3.0', section: 'dependencies' }]),
+    '1 new dependency in package.json: left-pad@^1.3.0 (dependencies). Confirm each one is needed and is the package you meant',
+  );
+  const many = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) => ({ name, version: '1.0.0', section: 'peerDependencies' }));
+  assert.match(dependenciesWarning(many) ?? '', /^6 new dependencies in package\.json: a@1\.0\.0 \(peerDependencies\), .*e@1\.0\.0 \(peerDependencies\) and 1 more\./);
+});
+
+test('judge files untested files and new dependencies as warnings, or as regressions when configured', () => {
+  const evidence = {
+    committed: BASELINE,
+    base: BASELINE,
+    current: BASELINE,
+    patch: SKIPPED,
+    unmeasured: [],
+    untested: ['src/new.ts'],
+    dependencies: [{ name: 'left-pad', version: '^1.3.0', section: 'dependencies' }],
+  };
+  const messages = [
+    '1 new file has no line covered by a test: src/new.ts',
+    '1 new dependency in package.json: left-pad@^1.3.0 (dependencies). Confirm each one is needed and is the package you meant',
+  ];
+  assert.deepEqual(judge(evidence, DEFAULT_CONFIG), { regressions: [], warnings: messages, improvements: [] });
+  const blocking: Config = {
+    ...DEFAULT_CONFIG,
+    untestedFiles: { enabled: true, mode: 'block' },
+    newDependencies: { ...DEFAULT_CONFIG.newDependencies, mode: 'block' },
+  };
+  assert.deepEqual(judge(evidence, blocking), { regressions: messages, warnings: [], improvements: [] });
 });

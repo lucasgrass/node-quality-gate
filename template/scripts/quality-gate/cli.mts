@@ -9,6 +9,7 @@
  *   node scripts/quality-gate/cli.mts check
  *   node scripts/quality-gate/cli.mts baseline
  *   node scripts/quality-gate/cli.mts doctor
+ *   node scripts/quality-gate/cli.mts upgrade
  *
  * Runs on Node 22.18+ without a build step and without dependencies.
  */
@@ -19,22 +20,14 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { BASELINE_PATH, CONFIG_PATH, REPORT_DIR, loadConfig, type Config } from './config.mts';
-import {
-  addUntracked,
-  coverageTotals,
-  diffSinceBase,
-  measurePatchCoverage,
-  parseAddedLines,
-  parseLcov,
-  unmeasuredFiles,
-  untrackedFiles,
-  type FileCoverage,
-} from './coverage.mts';
+import { measureChanges, type Changes } from './changes.mts';
+import { coverageTotals, parseLcov } from './coverage.mts';
 import { detectDuplication } from './duplication.mts';
 import { countViolations, excluder, oversizedFiles, readSources, runEslint } from './lint.mts';
 import { compare, holdTolerated, judge, parseBaseline, toBaseline } from './ratchet.mts';
 import { annotations, renderMarkdown, truncate } from './report.mts';
-import type { Baseline, DuplicatedBlock, Metrics, PatchCoverage, Report } from './types.mts';
+import type { Baseline, DuplicatedBlock, Metrics, Report } from './types.mts';
+import { upgrade } from './upgrade.mts';
 import { git, toRepoPath } from './util.mts';
 
 export const VERSION = '0.1.1';
@@ -50,27 +43,31 @@ Commands
   check      Measure, compare with ${BASELINE_PATH}, write ${REPORT_DIR}/ (exit 1 on regressions)
   baseline   Write ${BASELINE_PATH} from the current state (refuses to loosen it without --allow-regression)
   doctor     Check Node, config, coverage report, ESLint and git before the first run
+  upgrade    Replace scripts/quality-gate/ with the latest release of the template, from GitHub
 
 Options
   --config <path>      Config file (default ${CONFIG_PATH}; defaults apply when it is missing)
   --base <ref>         Base branch, for patch coverage and the baseline comparison
                        (default: GITHUB_BASE_REF or patchCoverage.baseRef)
   --allow-regression   Let "baseline" record values worse than the current baseline
+  --to <version>       Version "upgrade" installs (default: the latest release)
+  --check              With "upgrade": only say whether another version is available
   --version, --help
 
 Exit codes: 0 ok, 1 regressions, 2 usage or environment error`;
 
 type Flags = { config: string; base: string | undefined; allowRegression: boolean };
-type Changes = { patch: PatchCoverage; unmeasured: string[] };
 type Measurement = Changes & { metrics: Metrics; blocks: DuplicatedBlock[] };
 
-export function main(argv: string[], cwd: string): number {
+export function main(argv: string[], cwd: string): number | Promise<number> {
   const { positionals, values } = parseArgs({
     args: argv,
     options: {
       config: { type: 'string' },
       base: { type: 'string' },
       'allow-regression': { type: 'boolean' },
+      to: { type: 'string' },
+      check: { type: 'boolean' },
       version: { type: 'boolean' },
       help: { type: 'boolean' },
     },
@@ -83,7 +80,10 @@ export function main(argv: string[], cwd: string): number {
   if (command === 'check') return check(flags, cwd);
   if (command === 'baseline') return baseline(flags, cwd);
   if (command === 'doctor') return doctor(flags, cwd);
-  throw new Error(`unknown command "${command}" (use check, baseline or doctor)`);
+  if (command === 'upgrade') {
+    return upgrade({ dir: dirname(fileURLToPath(import.meta.url)), current: VERSION, to: values.to, checkOnly: values.check ?? false });
+  }
+  throw new Error(`unknown command "${command}" (use check, baseline, doctor or upgrade)`);
 }
 
 function print(text: string, code = 0): number {
@@ -95,11 +95,11 @@ function print(text: string, code = 0): number {
 
 function check(flags: Flags, cwd: string): number {
   const config = loadConfig(flags.config, cwd);
-  const { metrics, patch, unmeasured, blocks } = measure(config, flags.base, cwd);
+  const { metrics, blocks, patch, unmeasured, untested, dependencies } = measure(config, flags.base, cwd);
   const committed = readBaseline(cwd);
   const base = readBaseBaseline(flags.base ?? baseRef(config), cwd);
   const previous = committed ?? base;
-  const verdict = judge({ committed, base, current: metrics, patch, unmeasured }, config);
+  const verdict = judge({ committed, base, current: metrics, patch, unmeasured, untested, dependencies }, config);
   const report: Report = {
     ...verdict,
     tool: TOOL,
@@ -110,6 +110,8 @@ function check(flags: Flags, cwd: string): number {
     current: metrics,
     patchCoverage: patch,
     unmeasuredFiles: unmeasured,
+    untestedFiles: untested,
+    newDependencies: dependencies,
     duplicatedBlocks: blocks,
   };
   const markdown = renderMarkdown(report, config);
@@ -192,7 +194,8 @@ function measure(config: Config, baseOverride: string | undefined, cwd: string):
   const self = `${toRepoPath(dirname(fileURLToPath(import.meta.url)), cwd)}/**`;
   const excluded = excluder(process.env.QG_INCLUDE_SELF ? config.exclude : [...config.exclude, self]);
   const sources = readSources(lint.files.filter((file) => !excluded(file)), cwd);
-  const changes = measureChanges(config, baseOverride, coverage, new Set(sources.keys()), cwd);
+  const base = baseOverride ?? baseRef(config);
+  const changes = measureChanges({ config, base, coverage, sources: new Set(sources.keys()), cwd });
   const violations = countViolations(lint.messages, Object.keys(config.eslint.qualityRules), excluded);
   const oversized = oversizedFiles(sources, config.size);
   const duplication = detectDuplication(sources, config.duplication);
@@ -204,28 +207,6 @@ function measure(config: Config, baseOverride: string | undefined, cwd: string):
     ruleViolations: violations.perFile,
   };
   return { metrics, ...changes, blocks: duplication.blocks };
-}
-
-/** Patch coverage, plus the changed source files the coverage report says nothing about. */
-function measureChanges(
-  config: Config,
-  baseOverride: string | undefined,
-  coverage: Map<string, FileCoverage>,
-  sources: ReadonlySet<string>,
-  cwd: string,
-): Changes {
-  const skipped = (reason: string): Changes => ({ patch: { status: 'skipped', reason }, unmeasured: [] });
-  if (!config.patchCoverage.enabled) return skipped('disabled in the config');
-  const base = baseOverride ?? baseRef(config);
-  const diff = diffSinceBase(base, cwd);
-  if (diff === null) return skipped(`base ref ${base} not found; fetch it or set patchCoverage.baseRef`);
-  const added = parseAddedLines(diff);
-  const untracked = untrackedFiles(cwd);
-  const changed = [...added].filter(([, lines]) => lines.length > 0).map(([file]) => file);
-  return {
-    unmeasured: unmeasuredFiles([...changed, ...untracked], coverage, sources),
-    patch: measurePatchCoverage(addUntracked(added, untracked, coverage), coverage, config.patchCoverage.minLines),
-  };
 }
 
 function baseRef(config: Config): string {
@@ -269,7 +250,7 @@ function publish(report: Report, markdown: string): void {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    process.exitCode = main(process.argv.slice(2), process.cwd());
+    process.exitCode = await main(process.argv.slice(2), process.cwd());
   } catch (error) {
     console.error(`quality-gate: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 2;

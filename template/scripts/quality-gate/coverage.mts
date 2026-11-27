@@ -126,6 +126,17 @@ export function parseAddedLines(diff: string): Map<string, number[]> {
   return added;
 }
 
+/** Files a unified diff creates: their old side is `/dev/null`. */
+export function parseNewFiles(diff: string): string[] {
+  const created: string[] = [];
+  let fromNothing = false;
+  for (const line of diff.split('\n')) {
+    if (fromNothing && line.startsWith('+++ ')) created.push(line.slice(4).trim().replace(/^b\//, ''));
+    fromNothing = line.trim() === '--- /dev/null';
+  }
+  return created;
+}
+
 /** Files git does not track yet (local runs before a commit) count as entirely new. */
 export function untrackedFiles(cwd: string): string[] {
   const output = git(['ls-files', '--others', '--exclude-standard'], cwd) ?? '';
@@ -162,6 +173,24 @@ export function unmeasuredFiles(
     if (ancestors(file).some((directory) => coveredDirectories.has(directory))) missing.add(file);
   }
   return [...missing].sort();
+}
+
+/**
+ * New source files the coverage report lists with lines to cover and not one of them hit:
+ * code that no test loads, or that is only loaded. Files the report does not mention at all
+ * are `unmeasuredFiles`.
+ */
+export function untestedFiles(
+  created: Iterable<string>,
+  coverage: ReadonlyMap<string, FileCoverage>,
+  sources: ReadonlySet<string>,
+): string[] {
+  const untested = new Set<string>();
+  for (const file of created) {
+    const lines = coverage.get(file);
+    if (lines && sources.has(file) && lines.found.lines > 0 && lines.hit.lines === 0) untested.add(file);
+  }
+  return [...untested].sort();
 }
 
 /** `src/a/b.ts` -> `src/a`, `src`. Files at the root have none. */

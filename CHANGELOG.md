@@ -9,6 +9,24 @@ Adopters copy files from `template/`; the version in the header of
 
 ## [Unreleased]
 
+Copies of 0.1.x do not have `upgrade` yet: copy the new
+`scripts/quality-gate/` over yours once, by hand. The config and the baseline
+need no change; the two new checks are warnings unless you say otherwise.
+
+### Added
+
+- `upgrade` command: replaces `scripts/quality-gate/` with the latest release
+  (or `--to <version>`), prints the changelog between the two versions and
+  says whether the workflow templates changed. `upgrade --check` only reports
+  whether another version is available.
+- New files without tests: a source file the pull request creates that the
+  coverage report lists with no line hit is reported
+  (`untestedFiles`: `enabled`, `mode`).
+- New dependencies: names the pull request adds to `dependencies`,
+  `optionalDependencies` or `peerDependencies` of `package.json` are reported
+  (`newDependencies`: `enabled`, `mode`, `sections`).
+- `reports/quality-gate.json` has `untestedFiles` and `newDependencies`.
+
 ## [0.1.1] - 2026-11-26
 
 No change in behaviour; a copy of 0.1.0 does not need to be updated.

@@ -129,6 +129,8 @@ and fix every regression it lists. Do not run `baseline --allow-regression`.
    request. Make the "Quality gate" check required in your branch protection.
 5. When a pull request improves a metric, run `baseline` again in that pull
    request. The bar moves up with the code.
+6. Later, `node scripts/quality-gate/cli.mts upgrade` replaces the scripts
+   with the latest release and tells you what changed.
 
 The [manual](docs/manual.md) covers every option, the per-package-manager
 details, legacy repositories, monorepos and troubleshooting.
@@ -139,6 +141,8 @@ details, legacy repositories, monorepos and troubleshooting.
 |---|---|---|
 | Lines, functions and branches coverage | `coverage/lcov.info` | a value drops more than the tolerance (0.1 pt) |
 | Patch coverage of the changed lines | lcov + `git diff` against the base branch | below 80%, as a warning by default; skipped under 20 coverable lines, like SonarQube |
+| New files without tests | lcov + `git diff` | a source file the pull request creates has no line covered; a warning by default |
+| New dependencies | `package.json` against the base branch | the pull request adds a dependency; a warning by default, so the reviewer sees it |
 | Quality rule violations | ESLint with `complexity`, `max-depth`, `max-lines`, `max-lines-per-function`, `max-params`, `max-nested-callbacks` injected as warnings (ESLint's own defaults) | the total grows, or a file/rule pair grows |
 | Oversized files | over 400 lines or 40 KB | a new file crosses the limit, or an oversized file grows |
 | Duplication | built-in detector calibrated on SonarQube (10 lines / 100 tokens, strings anonymized, imports and comments ignored) | the percentage or the number of fragments grows |
@@ -159,7 +163,7 @@ current), permissions are the minimum, superseded runs are cancelled.
 
 ## Design choices
 
-- **Nothing to install.** The gate is nine small TypeScript files that Node
+- **Nothing to install.** The gate is eleven small TypeScript files that Node
   22.18+ runs directly (Bun too). No build step, no runtime dependency.
 - **Reads standard reports.** lcov for coverage and ESLint's JSON for
   violations, so any test runner and any ESLint setup works.
