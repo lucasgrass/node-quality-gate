@@ -9,6 +9,8 @@ Adopters copy files from `template/`; the version in the header of
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-27
+
 Copies of 0.1.x do not have `upgrade` yet: copy the new
 `scripts/quality-gate/` over yours once, by hand. The config and the baseline
 need no change; the two new checks are warnings unless you say otherwise.
